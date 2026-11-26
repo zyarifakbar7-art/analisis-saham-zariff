@@ -410,6 +410,7 @@ def format_laporan_screener_discord(paket_hasil: dict, top10_list: list, min_h: 
     parsed = paket_hasil.get("parsed") if isinstance(paket_hasil, dict) else {}
     if not isinstance(parsed, dict):
         parsed = {}
+    ks = konteks_sesi_screener()
 
     baris = [f"**Rentang Filter:** Rp {min_h:,} – Rp {max_h:,} | **Update:** {paket_hasil.get('waktu', '-')}\n"]
     baris.append("**📋 Ringkasan Top 10 Emiten:**")
@@ -422,7 +423,7 @@ def format_laporan_screener_discord(paket_hasil: dict, top10_list: list, min_h: 
 
     s2_list = parsed.get("top_sesi2") or []
     if s2_list:
-        judul_s2 = "⚠️ Paling Rawan Turun Sesi 2" if mode_turun else "⚡ Top Pick Sesi 2 Hari Ini"
+        judul_s2 = f"⚠️ Paling Rawan Turun ({ks['label_short_1']})" if mode_turun else f"⚡ Top Pick ({ks['label_short_1']})"
         baris.append(f"\n**{judul_s2}:**")
         for p in s2_list[:3]:
             kd_p = str(p.get("kode", "")).upper()
@@ -431,7 +432,7 @@ def format_laporan_screener_discord(paket_hasil: dict, top10_list: list, min_h: 
 
     esok_list = parsed.get("top_esok") or []
     if esok_list:
-        judul_es = "🔻 Paling Rawan Turun Esok Hari" if mode_turun else "🌅 Top Pick Esok Hari (BSJP)"
+        judul_es = f"🔻 Paling Rawan Turun ({ks['label_short_2']})" if mode_turun else f"🌅 Top Pick ({ks['label_short_2']})"
         baris.append(f"\n**{judul_es}:**")
         for p in esok_list[:3]:
             kd_p = str(p.get("kode", "")).upper()
@@ -447,7 +448,6 @@ def status_jam_bursa_bei() -> dict:
     menit_sekarang = now_wib.hour * 60 + now_wib.minute
     jam_str = now_wib.strftime("%H:%M:%S WIB")
 
-    # Jika hari ini libur (akhir pekan atau tanggal merah di hari biasa)
     if not _is_hari_bursa_aktif(hari_ini):
         tgl_lanjut = _hari_bursa_berikutnya(hari_ini)
         lanjut_str = _format_tgl_id(tgl_lanjut)
@@ -464,7 +464,6 @@ def status_jam_bursa_bei() -> dict:
             )
         }
 
-    # Hari kerja aktif (Senin - Jumat): setiap berganti hari (00:00 WIB) otomatis Sesi 1
     if hari == 4:
         sesi1_tutup = 11 * 60 + 30
         sesi2_buka = 14 * 60
@@ -540,6 +539,62 @@ def status_jam_bursa_bei() -> dict:
         "sesi_aktif": "Sesi 1",
         "tanggal_lanjutan": tgl_lanjut,
         "info": f"Pasar saham tutup hari ini • Dilanjutkan Sesi 1 pada {_format_tgl_id(tgl_lanjut)} pukul 09:00 WIB • {jam_str}"
+    }
+
+def konteks_sesi_screener() -> dict:
+    now_wib = waktu_wib_sekarang()
+    hari_ini = now_wib.date()
+    hari = now_wib.weekday()
+    menit = now_wib.hour * 60 + now_wib.minute
+
+    if not _is_hari_bursa_aktif(hari_ini):
+        tgl_lanjut = _hari_bursa_berikutnya(hari_ini)
+        lbl_hari = _format_tgl_id(tgl_lanjut)
+        return {
+            "label_short_1": f"Sesi 1 ({lbl_hari})",
+            "label_short_2": f"Sesi 2 ({lbl_hari})",
+            "fokus_pilihan": f"Sesi 1 {lbl_hari} / Sesi 2 {lbl_hari} / Keduanya",
+            "instruksi_waktu": (
+                f"Saat ini hari libur ({_format_tgl_id(hari_ini)}). "
+                f"Bursa baru akan buka kembali pada {lbl_hari}. "
+                f"Rujuklah ke {lbl_hari} (Sesi 1 & Sesi 2)."
+            ),
+        }
+
+    sesi2_buka = (14 * 60) if hari == 4 else (13 * 60 + 30)
+    sesi1_buka = 9 * 60
+
+    if menit < sesi1_buka:
+        return {
+            "label_short_1": "Sesi 1 Hari Ini",
+            "label_short_2": "Sesi 2 Hari Ini",
+            "fokus_pilihan": "Sesi 1 Hari Ini / Sesi 2 Hari Ini / Keduanya",
+            "instruksi_waktu": (
+                f"Sekarang jam {now_wib.strftime('%H:%M WIB')} ({_format_tgl_id(hari_ini)}), "
+                f"Sesi 1 belum buka (buka 09:00 WIB). Fokuskan analisis untuk Sesi 1 dan Sesi 2 hari ini, "
+                f"bukan 'Esok'."
+            ),
+        }
+    if menit < sesi2_buka:
+        return {
+            "label_short_1": "Sesi 1 (Jalan)",
+            "label_short_2": "Sesi 2 Hari Ini",
+            "fokus_pilihan": "Sesi 1 / Sesi 2 Hari Ini / Keduanya",
+            "instruksi_waktu": (
+                f"Sekarang jam {now_wib.strftime('%H:%M WIB')} ({_format_tgl_id(hari_ini)}) saat Sesi 1 berlangsung. "
+                f"Fokuskan pada lanjutan Sesi 1 dan persiapan Sesi 2 hari ini."
+            ),
+        }
+
+    tgl_besok = _hari_bursa_berikutnya(hari_ini)
+    return {
+        "label_short_1": "Sesi 2 (Jalan)",
+        "label_short_2": f"Esok ({_format_tgl_id(tgl_besok)})",
+        "fokus_pilihan": "Sesi 2 / Esok / Keduanya",
+        "instruksi_waktu": (
+            f"Sekarang jam {now_wib.strftime('%H:%M WIB')} ({_format_tgl_id(hari_ini)}) saat/setelah Sesi 2. "
+            f"Fokuskan pada Sesi 2 hari ini dan potensi hari bursa berikutnya ({_format_tgl_id(tgl_besok)})."
+        ),
     }
 
 DEFAULT_WATCHLIST = [
@@ -1325,7 +1380,9 @@ def _ekstrak_json_ai(teks: str):
     return None
 
 def buat_konteks_saham(kode: str, data_ihsg: dict, data_saham: dict, info: dict, berita_ihsg: str, berita_saham: str) -> str:
+    ks = konteks_sesi_screener()
     return f"""
+    Waktu WIB: {waktu_wib_sekarang().strftime('%A, %d %b %Y %H:%M WIB')} | {ks['instruksi_waktu']}
     IHSG (^JKSE): {_angka_aman(data_ihsg.get('harga', 0)):,.2f} ({_angka_aman(data_ihsg.get('pct', 0)):+.2f}%) | MA20: {_angka_aman(data_ihsg.get('ind', {}).get('ma20', 0)):,.2f} | RSI: {_angka_aman(data_ihsg.get('ind', {}).get('rsi', 0)):.1f} | Sup: {_angka_aman(data_ihsg.get('ind', {}).get('support', 0)):,.2f} | Res: {_angka_aman(data_ihsg.get('ind', {}).get('resistance', 0)):,.2f}
     Berita IHSG:
     {berita_ihsg}
@@ -1336,9 +1393,12 @@ def buat_konteks_saham(kode: str, data_ihsg: dict, data_saham: dict, info: dict,
     """
 
 def jalankan_prediksi_ai(kode: str, konteks_data: str) -> str:
+    ks = konteks_sesi_screener()
     prompt = f"""
     Buat analisis saham ringkas, padat, dan tajam dalam Bahasa Indonesia berdasarkan data berikut:
     {konteks_data}
+
+    Konteks waktu bursa: {ks['instruksi_waktu']}
 
     Format output:
     ### 1. Prediksi IHSG (1–5 Hari Bursa)
@@ -1358,9 +1418,11 @@ def jalankan_prediksi_ai(kode: str, konteks_data: str) -> str:
     return panggil_ai_aman(prompt, max_tokens=1600)
 
 def jawab_pertanyaan_ai(kode: str, pertanyaan: str, konteks_data: str, riwayat_chat: list) -> str:
+    ks = konteks_sesi_screener()
     riwayat_teks = "\n".join([f"{m['role'].upper()}: {m['text']}" for m in riwayat_chat[-3:]])
     prompt = f"""
     Jawab pertanyaan pengguna tentang saham {kode} secara lugas, tuntas, dan berbasis data berikut dalam Bahasa Indonesia:
+    Konteks waktu bursa: {ks['instruksi_waktu']}
     {konteks_data}
     Riwayat singkat:
     {riwayat_teks}
@@ -1611,7 +1673,7 @@ def popup_detail_saham(kode: str, ihsg_paket: dict):
         with st.form(key=f"form_tanya_{kode}", clear_on_submit=True):
             col_in, col_sub = st.columns([4, 1])
             with col_in:
-                input_user = st.text_input("Tulis pertanyaan...", placeholder=f"Contoh: Apakah {kode} masih kuat naik besok atau rawan koreksi?", label_visibility="collapsed")
+                input_user = st.text_input("Tulis pertanyaan...", placeholder=f"Contoh: Apakah {kode} masih kuat naik atau rawan koreksi?", label_visibility="collapsed")
             with col_sub:
                 kirim_tanya = st.form_submit_button("Kirim ➤", use_container_width=True)
 
@@ -1668,6 +1730,7 @@ if "filter_min_tx_miliar" not in st.session_state:
 
 # ================= HEADER BRANDING, BANNER JAM BURSA BEI & BILAH PENCARIAN ATAS =================
 sesi_bei = status_jam_bursa_bei()
+ks_aktif = konteks_sesi_screener()
 st.markdown(
     f'<div class="idx-session-banner">'
     f'<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'
@@ -2075,6 +2138,7 @@ def signature_top10(daftar_top10: list) -> str:
     return ",".join([x["ticker"].upper() for x in (daftar_top10 or [])])
 
 def prediksi_10_saham_naik_ai(top10: list, data_ihsg: dict, min_h: int, max_h: int) -> dict:
+    ks = konteks_sesi_screener()
     kode_list = ["IHSG"] + [k["ticker"] for k in top10]
     berita_map = {}
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -2091,11 +2155,12 @@ def prediksi_10_saham_naik_ai(top10: list, data_ihsg: dict, min_h: int, max_h: i
             f"{idx}. {k['ticker']} | Harga: Rp {k['price']:,.0f} ({k['pct_day']:+.2f}%) | Tx: Rp {k.get('val_tx_miliar', 0):.1f}B | "
             f"VWAP: Rp {k['vwap']:,.0f} | CLV: {k['clv']*100:.0f}% | Vol: {k['vol_ratio']:.2f}x | EMA9: Rp {k['ema9']:,.0f} | "
             f"MA20: Rp {k['ma20']:,.0f} | RSI: {k['rsi']:.1f} | MACD: {k['macd_hist']:+.2f} | Sup20: Rp {k['support']:,.0f} | "
-            f"Res20: Rp {k['resistance']:,.0f} | Skor S2: {k['skor_naik_s2']}, Esok: {k['skor_naik_esok']} | Berita: {berita_map.get(k['ticker'], '-')}"
+            f"Res20: Rp {k['resistance']:,.0f} | Skor {ks['label_short_1']}: {k['skor_naik_s2']}, {ks['label_short_2']}: {k['skor_naik_esok']} | Berita: {berita_map.get(k['ticker'], '-')}"
         )
 
     prompt = f"""
     Analisis 10 saham kandidat naik (rentang Rp {min_h:,} – Rp {max_h:,}).
+    Konteks waktu bursa: {ks['instruksi_waktu']}
     IHSG: {_angka_aman(data_ihsg.get('harga', 0)):,.2f} ({_angka_aman(data_ihsg.get('pct', 0)):+.2f}%) | Berita IHSG: {berita_map.get('IHSG', '-')}
 
     Data 10 Saham:
@@ -2106,7 +2171,7 @@ def prediksi_10_saham_naik_ai(top10: list, data_ihsg: dict, min_h: int, max_h: i
       "ringkasan_tabel": [
         {{
           "kode": "KODE_SAHAM",
-          "fokus": "Sesi 2 / Esok / Keduanya",
+          "fokus": "{ks['fokus_pilihan']}",
           "teknikal": "Ringkasan indikator padat",
           "berita": "Sentimen berita singkat",
           "entry": "Rp ...",
@@ -2123,11 +2188,11 @@ def prediksi_10_saham_naik_ai(top10: list, data_ihsg: dict, min_h: int, max_h: i
       "top_esok": [
         {{
           "kode": "KODE_SAHAM",
-          "alasan": ["Poin tren EMA9/MA20/RSI", "Poin katalis berita", "Poin strategi BSJP/swing"]
+          "alasan": ["Poin tren EMA9/MA20/RSI", "Poin katalis berita", "Poin strategi swing/hold"]
         }}
       ]
     }}
-    Wajib sertakan semua 10 kode saham di `ringkasan_tabel`, 3 saham di `top_sesi2`, dan 3 saham di `top_esok`.
+    Wajib sertakan semua 10 kode saham di `ringkasan_tabel`, 3 saham di `top_sesi2` (untuk {ks['label_short_1']}), dan 3 saham di `top_esok` (untuk {ks['label_short_2']}).
     """
     raw_teks, label_model = panggil_ai_raw(prompt, max_tokens=4096, json_mode=True)
     parsed = _ekstrak_json_ai(raw_teks)
@@ -2143,6 +2208,7 @@ def prediksi_10_saham_naik_ai(top10: list, data_ihsg: dict, min_h: int, max_h: i
     }
 
 def prediksi_10_saham_turun_ai(top10_turun: list, data_ihsg: dict, min_h: int, max_h: int) -> dict:
+    ks = konteks_sesi_screener()
     kode_list = ["IHSG"] + [k["ticker"] for k in top10_turun]
     berita_map = {}
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -2159,11 +2225,12 @@ def prediksi_10_saham_turun_ai(top10_turun: list, data_ihsg: dict, min_h: int, m
             f"{idx}. {k['ticker']} | Harga: Rp {k['price']:,.0f} ({k['pct_day']:+.2f}%) | Tx: Rp {k.get('val_tx_miliar', 0):.1f}B | "
             f"VWAP: Rp {k['vwap']:,.0f} | CLV: {k['clv']*100:.0f}% | Vol: {k['vol_ratio']:.2f}x | EMA9: Rp {k['ema9']:,.0f} | "
             f"MA20: Rp {k['ma20']:,.0f} | RSI: {k['rsi']:.1f} | MACD: {k['macd_hist']:+.2f} | Sup20: Rp {k['support']:,.0f} | "
-            f"Res20: Rp {k['resistance']:,.0f} | Skor Turun S2: {k['skor_turun_s2']}, Esok: {k['skor_turun_esok']} | Berita: {berita_map.get(k['ticker'], '-')}"
+            f"Res20: Rp {k['resistance']:,.0f} | Skor Turun {ks['label_short_1']}: {k['skor_turun_s2']}, {ks['label_short_2']}: {k['skor_turun_esok']} | Berita: {berita_map.get(k['ticker'], '-')}"
         )
 
     prompt = f"""
     Analisis 10 saham berisiko turun / koreksi (rentang Rp {min_h:,} – Rp {max_h:,}).
+    Konteks waktu bursa: {ks['instruksi_waktu']}
     IHSG: {_angka_aman(data_ihsg.get('harga', 0)):,.2f} ({_angka_aman(data_ihsg.get('pct', 0)):+.2f}%) | Berita IHSG: {berita_map.get('IHSG', '-')}
 
     Data 10 Saham:
@@ -2174,7 +2241,7 @@ def prediksi_10_saham_turun_ai(top10_turun: list, data_ihsg: dict, min_h: int, m
       "ringkasan_tabel": [
         {{
           "kode": "KODE_SAHAM",
-          "fokus": "Sesi 2 / Esok / Keduanya",
+          "fokus": "{ks['fokus_pilihan']}",
           "teknikal": "Penyebab tekanan teknikal singkat",
           "berita": "Sentimen berita singkat",
           "support": "Rp ...",
@@ -2185,17 +2252,17 @@ def prediksi_10_saham_turun_ai(top10_turun: list, data_ihsg: dict, min_h: int, m
       "top_sesi2": [
         {{
           "kode": "KODE_SAHAM",
-          "alasan": ["Tekanan VWAP/CLV intraday", "Sentimen berita/profit taking", "Level breakdown Sesi 2"]
+          "alasan": ["Tekanan VWAP/CLV intraday", "Sentimen berita/profit taking", "Level breakdown jangka pendek"]
         }}
       ],
       "top_esok": [
         {{
           "kode": "KODE_SAHAM",
-          "alasan": ["Risiko pelemahan tren esok", "Faktor distribusi/overbought", "Saran manajemen risiko"]
+          "alasan": ["Risiko pelemahan tren lanjutan", "Faktor distribusi/overbought", "Saran manajemen risiko"]
         }}
       ]
     }}
-    Wajib sertakan semua 10 kode saham di `ringkasan_tabel`, 3 saham di `top_sesi2`, dan 3 saham di `top_esok`.
+    Wajib sertakan semua 10 kode saham di `ringkasan_tabel`, 3 saham di `top_sesi2` (untuk {ks['label_short_1']}), dan 3 saham di `top_esok` (untuk {ks['label_short_2']}).
     """
     raw_teks, label_model = panggil_ai_raw(prompt, max_tokens=4096, json_mode=True)
     parsed = _ekstrak_json_ai(raw_teks)
@@ -2214,20 +2281,23 @@ def _badge_fokus_html(fokus_str: str, mode_turun: bool = False) -> str:
     f_low = str(fokus_str or "").lower()
     if "keduanya" in f_low:
         bg, fg = ("#361922", "#ff85a1") if mode_turun else ("#162d24", "#3fb950")
-    elif "sesi" in f_low:
+    elif "sesi 1" in f_low:
         bg, fg = ("#331d18", "#ff9e7d") if mode_turun else ("#17263b", "#6cb6ff")
+    elif "sesi 2" in f_low:
+        bg, fg = ("#2c2115", "#f5a623") if mode_turun else ("#1d2a3d", "#79c0ff")
     else:
         bg, fg = ("#2c2115", "#f5a623") if mode_turun else ("#261c38", "#c792ea")
     return f'<span class="ai-pill-fokus" style="background:{bg}; color:{fg};">{html.escape(str(fokus_str))}</span>'
 
 def _bangun_baris_fallback_kuantitatif(item_s: dict, mode_turun: bool = False) -> dict:
+    ks = konteks_sesi_screener()
     kd = item_s["ticker"]
     hrg = _angka_aman(item_s.get("price", 0.0), 0.0)
     sup = _angka_aman(item_s.get("support", hrg * 0.94), hrg * 0.94)
     res = _angka_aman(item_s.get("resistance", hrg * 1.06), hrg * 1.06)
     s2 = item_s.get("skor_turun_s2", 50) if mode_turun else item_s.get("skor_naik_s2", 50)
     es = item_s.get("skor_turun_esok", 50) if mode_turun else item_s.get("skor_naik_esok", 50)
-    fokus = "Keduanya" if abs(s2 - es) <= 6 else ("Sesi 2" if s2 > es else "Esok")
+    fokus = "Keduanya" if abs(s2 - es) <= 6 else (ks["label_short_1"] if s2 > es else ks["label_short_2"])
 
     if mode_turun:
         return {
@@ -2250,6 +2320,7 @@ def _bangun_baris_fallback_kuantitatif(item_s: dict, mode_turun: bool = False) -
     }
 
 def ringkas_konteks_screener_untuk_chat(top10: list, paket_hasil: dict, data_ihsg: dict, mode_turun: bool = False) -> str:
+    ks = konteks_sesi_screener()
     label_arah = "POTENSI TURUN / KOREKSI" if mode_turun else "POTENSI NAIK"
     baris_saham = []
     for idx, k in enumerate(top10, start=1):
@@ -2259,7 +2330,8 @@ def ringkas_konteks_screener_untuk_chat(top10: list, paket_hasil: dict, data_ihs
             f"{idx}. {k['ticker']} ({k['name']}): Harga Rp {k['price']:,.0f} ({k['pct_day']:+.2f}%), Tx Rp {k.get('val_tx_miliar', 0):.1f}B, "
             f"VWAP Rp {k['vwap']:,.0f}, CLV {k['clv']*100:.0f}%, Vol {k['vol_ratio']:.1f}x, "
             f"EMA9 Rp {k['ema9']:,.0f}, MA20 Rp {k['ma20']:,.0f}, RSI {k['rsi']:.1f}, "
-            f"Sup20 Rp {k['support']:,.0f}, Res20 Rp {k['resistance']:,.0f}, Skor S2 {skor_s2}, Skor Esok {skor_esok}"
+            f"Sup20 Rp {k['support']:,.0f}, Res20 Rp {k['resistance']:,.0f}, "
+            f"Skor {ks['label_short_1']} {skor_s2}, Skor {ks['label_short_2']} {skor_esok}"
         )
 
     ringkasan_ai = ""
@@ -2269,6 +2341,7 @@ def ringkas_konteks_screener_untuk_chat(top10: list, paket_hasil: dict, data_ihs
             ringkasan_ai = json.dumps(parsed, ensure_ascii=False)[:2400]
 
     return (
+        f"Konteks Waktu Bursa: {ks['instruksi_waktu']}\n"
         f"Konteks Screener 10 Saham {label_arah}:\n"
         f"IHSG: {_angka_aman(data_ihsg.get('harga', 0)):,.2f} ({_angka_aman(data_ihsg.get('pct', 0)):+.2f}%)\n"
         f"Daftar 10 Saham:\n{chr(10).join(baris_saham)}\n\n"
@@ -2290,9 +2363,9 @@ def render_kotak_tanya_screener(prefix_key: str, top10: list, paket_hasil: dict,
         c_in, c_btn = st.columns([4.4, 1.0])
         with c_in:
             ph_txt = (
-                "Tanya apa saja soal 10 saham potensi turun di atas (misal: Kapan waktu aman masuk kembali ke MEDC?)..."
+                "Tanya apa saja soal 10 saham potensi turun di atas (misal: Kapan waktu aman masuk kembali ke saham yang terkoreksi?)..."
                 if mode_turun else
-                "Tanya apa saja soal 10 saham potensi naik di atas (misal: Bandingkan GOTO vs MEDC untuk BSJP besok)..."
+                "Tanya apa saja soal 10 saham potensi naik di atas (misal: Bandingkan 2 kandidat terkuat untuk sesi hari ini)..."
             )
             teks_input = st.text_input("Tanya prediksi", placeholder=ph_txt, label_visibility="collapsed")
         with c_btn:
@@ -2329,12 +2402,13 @@ def render_hasil_screener_ai(paket_hasil: dict, top10_aktif: list, data_ihsg: di
         st.warning(raw_teks)
         return
 
+    ks = konteks_sesi_screener()
     top10_list = top10_aktif if top10_aktif else (paket_hasil.get("top10") or [])
     waktu = paket_hasil.get("waktu", "")
     judul_exp = (
-        f"📉 Tabel, Top Pick & Tanya AI — 10 Saham Potensi Turun (Rp {min_h_aktif:,} – Rp {max_h_aktif:,}) • Update {waktu}"
+        f"📉 Tabel, Top Pick & Tanya AI — 10 Saham Potensi Turun ({ks['label_short_1']} & {ks['label_short_2']} • Rp {min_h_aktif:,} – Rp {max_h_aktif:,}) • Update {waktu}"
         if mode_turun else
-        f"📊 Tabel, Top Pick & Tanya AI — 10 Saham Potensi Naik (Rp {min_h_aktif:,} – Rp {max_h_aktif:,}) • Update {waktu}"
+        f"📊 Tabel, Top Pick & Tanya AI — 10 Saham Potensi Naik ({ks['label_short_1']} & {ks['label_short_2']} • Rp {min_h_aktif:,} – Rp {max_h_aktif:,}) • Update {waktu}"
     )
 
     with st.expander(judul_exp, expanded=True):
@@ -2438,13 +2512,13 @@ def render_hasil_screener_ai(paket_hasil: dict, top10_aktif: list, data_ihsg: di
         if mode_turun:
             th_kanan = "<th style='text-align:right;'>Support Terdekat</th><th style='text-align:right;'>Area Re-entry</th><th style='text-align:right;'>Rawan Breakdown</th>"
             judul_tbl = f"📉 Ringkasan 10 Saham Potensi Turun / Koreksi (Rp {min_h_aktif:,} – Rp {max_h_aktif:,})"
-            judul_s2 = "⚠️ Paling Rawan Turun di Sesi 2 Hari Ini"
-            judul_esok = "🔻 Paling Rawan Lanjut Turun Esok Hari"
+            judul_s2 = f"⚠️ Paling Rawan Turun • {ks['label_short_1']}"
+            judul_esok = f"🔻 Paling Rawan Turun • {ks['label_short_2']}"
         else:
             th_kanan = "<th style='text-align:right;'>Area Entry</th><th style='text-align:right;'>Target Profit</th><th style='text-align:right;'>Cut Loss</th>"
             judul_tbl = f"📊 Ringkasan 10 Saham Potensi Naik (Rp {min_h_aktif:,} – Rp {max_h_aktif:,})"
-            judul_s2 = "⚡ Top Pick Sesi 2 Hari Ini (Intraday Momentum)"
-            judul_esok = "🌅 Top Pick Esok Hari (BSJP / Swing Pendek)"
+            judul_s2 = f"⚡ Top Pick • {ks['label_short_1']}"
+            judul_esok = f"🌅 Top Pick • {ks['label_short_2']}"
 
         st.markdown(
             f'<div class="ai-sec-heading">{judul_tbl}</div>'
@@ -2468,7 +2542,7 @@ def render_hasil_screener_ai(paket_hasil: dict, top10_aktif: list, data_ihsg: di
                     raw_s2_list.append({
                         "kode": x["ticker"],
                         "alasan": [
-                            f"Skor Sesi 2 {x.get(key_s2_sort, 0)} (VWAP Rp {x['vwap']:,.0f}, CLV {x['clv']*100:.0f}%)",
+                            f"Skor {ks['label_short_1']} {x.get(key_s2_sort, 0)} (VWAP Rp {x['vwap']:,.0f}, CLV {x['clv']*100:.0f}%)",
                             f"Volume {x['vol_ratio']:.1f}x rata-rata 20 hari (Tx Rp {x.get('val_tx_miliar', 0):.1f}B)",
                             f"Support Rp {x['support']:,.0f} • Resistance Rp {x['resistance']:,.0f}"
                         ]
@@ -2489,7 +2563,7 @@ def render_hasil_screener_ai(paket_hasil: dict, top10_aktif: list, data_ihsg: di
                     raw_esok_list.append({
                         "kode": x["ticker"],
                         "alasan": [
-                            f"Skor Esok {x.get(key_es_sort, 0)} (EMA9 Rp {x['ema9']:,.0f}, MA20 Rp {x['ma20']:,.0f})",
+                            f"Skor {ks['label_short_2']} {x.get(key_es_sort, 0)} (EMA9 Rp {x['ema9']:,.0f}, MA20 Rp {x['ma20']:,.0f})",
                             f"RSI harian {x['rsi']:.1f} dengan MACD {x['macd_hist']:+.2f}",
                             f"Support Rp {x['support']:,.0f} • Resistance Rp {x['resistance']:,.0f}"
                         ]
@@ -2620,7 +2694,7 @@ with f_col_sync:
 st.write("")
 st.markdown(
     f'<div style="margin-top:6px; margin-bottom:4px;">'
-    f'<span style="color:#00c805; font-weight:700; font-size:15px; border-bottom:2px solid #00c805; padding-bottom:4px;">🚀 PREDIKSI 10 SAHAM NAIK SESI 2 &amp; ESOK HARI (HARGA Rp {harga_min_aktif:,} – Rp {harga_max_aktif:,})</span>'
+    f'<span style="color:#00c805; font-weight:700; font-size:15px; border-bottom:2px solid #00c805; padding-bottom:4px;">🚀 PREDIKSI 10 SAHAM NAIK • {ks_aktif["label_short_1"]} &amp; {ks_aktif["label_short_2"]} (HARGA Rp {harga_min_aktif:,} – Rp {harga_max_aktif:,})</span>'
     f'</div>',
     unsafe_allow_html=True
 )
@@ -2629,7 +2703,7 @@ col_sc_info, col_sc_btn = st.columns([3.2, 1.4], vertical_alignment="center")
 with col_sc_info:
     st.caption(f"Urutan **kiri atas = prediksi naik terkuat** • Filter aktif: **Rp {harga_min_aktif:,} – Rp {harga_max_aktif:,}** &amp; Transaksi ≥ **Rp {min_tx_aktif:.1f} Miliar**.")
 with col_sc_btn:
-    klik_scan_naik_ai = st.button("🔮 Analisis 10 Saham Naik Sesi 2 & Besok (Groq AI)", type="primary", use_container_width=True)
+    klik_scan_naik_ai = st.button(f"🔮 Analisis 10 Saham Naik • {ks_aktif['label_short_1']} & {ks_aktif['label_short_2']} (Groq AI)", type="primary", use_container_width=True)
 
 if top10_naik:
     for row_start in range(0, len(top10_naik), 5):
@@ -2649,8 +2723,8 @@ if top10_naik:
                     f'<div style="font-size:15px; font-weight:700; margin-top:5px;">Rp {item_s["price"]:,.0f} '
                     f'<span style="color:{w_pct}; font-size:12px;">({item_s["pct_day"]:+.2f}%)</span></div>'
                     f'<div class="sc-pill-row">'
-                    f'<span class="sc-pill" style="background:#17263b; color:#6cb6ff;">Sesi 2: {item_s["skor_naik_s2"]}</span>'
-                    f'<span class="sc-pill" style="background:#261c38; color:#c792ea;">Esok: {item_s["skor_naik_esok"]}</span>'
+                    f'<span class="sc-pill" style="background:#17263b; color:#6cb6ff;">{ks_aktif["label_short_1"]}: {item_s["skor_naik_s2"]}</span>'
+                    f'<span class="sc-pill" style="background:#261c38; color:#c792ea;">{ks_aktif["label_short_2"]}: {item_s["skor_naik_esok"]}</span>'
                     f'</div>'
                     f'<div style="font-size:10.5px; color:#8b949e; margin-top:5px;">Tx: {item_s.get("val_tx_miliar", 0):.1f}B • Vol: {item_s["vol_ratio"]:.1f}x • RSI: {item_s["rsi"]:.0f}</div>'
                     f'</div>',
@@ -2698,7 +2772,7 @@ if st.session_state.hasil_prediksi_sesi2_besok:
 st.write("")
 st.markdown(
     f'<div style="margin-top:10px; margin-bottom:4px;">'
-    f'<span style="color:#ff3b30; font-weight:700; font-size:15px; border-bottom:2px solid #ff3b30; padding-bottom:4px;">📉 PREDIKSI 10 SAHAM TURUN / KOREKSI SESI 2 &amp; ESOK HARI (HARGA Rp {harga_min_aktif:,} – Rp {harga_max_aktif:,})</span>'
+    f'<span style="color:#ff3b30; font-weight:700; font-size:15px; border-bottom:2px solid #ff3b30; padding-bottom:4px;">📉 PREDIKSI 10 SAHAM TURUN / KOREKSI • {ks_aktif["label_short_1"]} &amp; {ks_aktif["label_short_2"]} (HARGA Rp {harga_min_aktif:,} – Rp {harga_max_aktif:,})</span>'
     f'</div>',
     unsafe_allow_html=True
 )
@@ -2707,7 +2781,7 @@ col_dn_info, col_dn_btn = st.columns([3.2, 1.4], vertical_alignment="center")
 with col_dn_info:
     st.caption(f"Urutan **kiri atas = prediksi turun terkuat** • Filter aktif: **Rp {harga_min_aktif:,} – Rp {harga_max_aktif:,}** &amp; Transaksi ≥ **Rp {min_tx_aktif:.1f} Miliar**.")
 with col_dn_btn:
-    klik_scan_turun_ai = st.button("📉 Analisis 10 Saham Turun Sesi 2 & Besok (Groq AI)", use_container_width=True)
+    klik_scan_turun_ai = st.button(f"📉 Analisis 10 Saham Turun • {ks_aktif['label_short_1']} & {ks_aktif['label_short_2']} (Groq AI)", use_container_width=True)
 
 if top10_turun:
     for row_start in range(0, len(top10_turun), 5):
@@ -2727,8 +2801,8 @@ if top10_turun:
                     f'<div style="font-size:15px; font-weight:700; margin-top:5px;">Rp {item_s["price"]:,.0f} '
                     f'<span style="color:{w_pct}; font-size:12px;">({item_s["pct_day"]:+.2f}%)</span></div>'
                     f'<div class="sc-pill-row">'
-                    f'<span class="sc-pill" style="background:#33181c; color:#ff8080;">Sesi 2: {item_s["skor_turun_s2"]}</span>'
-                    f'<span class="sc-pill" style="background:#2d1f14; color:#ffb36b;">Esok: {item_s["skor_turun_esok"]}</span>'
+                    f'<span class="sc-pill" style="background:#33181c; color:#ff8080;">{ks_aktif["label_short_1"]}: {item_s["skor_turun_s2"]}</span>'
+                    f'<span class="sc-pill" style="background:#2d1f14; color:#ffb36b;">{ks_aktif["label_short_2"]}: {item_s["skor_turun_esok"]}</span>'
                     f'</div>'
                     f'<div style="font-size:10.5px; color:#8b949e; margin-top:5px;">Tx: {item_s.get("val_tx_miliar", 0):.1f}B • Vol: {item_s["vol_ratio"]:.1f}x • RSI: {item_s["rsi"]:.0f}</div>'
                     f'</div>',
