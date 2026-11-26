@@ -298,6 +298,7 @@ def ambil_secret_aman(nama_key: str) -> str:
 groq_api_key = ambil_secret_aman("GROQ_API_KEY")
 gemini_api_key = ambil_secret_aman("GEMINI_API_KEY")
 app_password_aktif = ambil_secret_aman("APP_PASSWORD")
+discord_webhook_url = ambil_secret_aman("DISCORD_WEBHOOK_URL")
 
 # ================= PROTEKSI PASSWORD LOGIN SEDERHANA =================
 if app_password_aktif:
@@ -335,6 +336,83 @@ WIB_TZ = timezone(timedelta(hours=7))
 
 def waktu_wib_sekarang() -> datetime:
     return datetime.now(WIB_TZ)
+
+# ================= INTEGRASI DISCORD WEBHOOK =================
+def kirim_ke_discord(judul: str, isi_pesan: str, warna: int = 3066993) -> tuple:
+    """Mengirim ringkasan screener atau analisis AI ke channel Discord pribadi."""
+    url_dc = ambil_secret_aman("DISCORD_WEBHOOK_URL")
+    if not url_dc:
+        return False, "DISCORD_WEBHOOK_URL belum diisi di Streamlit Secrets."
+
+    teks_bersih = str(isi_pesan or "").strip()
+    if len(teks_bersih) > 3900:
+        teks_bersih = teks_bersih[:3900] + "\n...(terpotong agar muat di Discord)"
+
+    payload = {
+        "username": "Bot Saham Zariff",
+        "embeds": [
+            {
+                "title": str(judul)[:250],
+                "description": teks_bersih,
+                "color": warna,
+                "footer": {
+                    "text": f"Analisis Saham by Zariff • {waktu_wib_sekarang().strftime('%d %b %Y %H:%M WIB')}"
+                }
+            }
+        ]
+    }
+    try:
+        req = urllib.request.Request(
+            url_dc,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            if resp.status in (200, 204):
+                return True, "Terkirim ke Discord!"
+            return False, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as he:
+        return False, f"HTTP Error {he.code}"
+    except Exception as e:
+        return False, str(e)
+
+def format_laporan_screener_discord(paket_hasil: dict, top10_list: list, min_h: int, max_h: int, mode_turun: bool = False) -> str:
+    parsed = paket_hasil.get("parsed") if isinstance(paket_hasil, dict) else {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+
+    baris = [f"**Rentang Filter:** Rp {min_h:,} – Rp {max_h:,} | **Update:** {paket_hasil.get('waktu', '-')}\n"]
+    baris.append("**📋 Ringkasan Top 10 Emiten:**")
+    for idx, item in enumerate(top10_list[:10], start=1):
+        kd = item["ticker"]
+        hrg = item["price"]
+        pct = item["pct_day"]
+        skor = item["skor_turun_total"] if mode_turun else item["skor_naik_total"]
+        baris.append(f"`{idx:02d}.` **{kd}** — Rp {hrg:,.0f} ({pct:+.2f}%) | Skor: **{skor}** | RSI: {item['rsi']:.0f}")
+
+    s2_list = parsed.get("top_sesi2") or []
+    if s2_list:
+        judul_s2 = "⚠️ Paling Rawan Turun Sesi 2" if mode_turun else "⚡ Top Pick Sesi 2 Hari Ini"
+        baris.append(f"\n**{judul_s2}:**")
+        for p in s2_list[:3]:
+            kd_p = str(p.get("kode", "")).upper()
+            alasan_p = "; ".join(p.get("alasan") or [])
+            baris.append(f"• **{kd_p}**: {alasan_p}")
+
+    esok_list = parsed.get("top_esok") or []
+    if esok_list:
+        judul_es = "🔻 Paling Rawan Turun Esok Hari" if mode_turun else "🌅 Top Pick Esok Hari (BSJP)"
+        baris.append(f"\n**{judul_es}:**")
+        for p in esok_list[:3]:
+            kd_p = str(p.get("kode", "")).upper()
+            alasan_p = "; ".join(p.get("alasan") or [])
+            baris.append(f"• **{kd_p}**: {alasan_p}")
+
+    return "\n".join(baris)
 
 def status_jam_bursa_bei() -> dict:
     now_wib = waktu_wib_sekarang()
@@ -1208,17 +1286,17 @@ def jalankan_prediksi_ai(kode: str, konteks_data: str) -> str:
 
     Format output:
     ### 1. Prediksi IHSG (1–5 Hari Bursa)
-    - **Probabilitas:** [X% Naik vs Y% Turun]
-    - **Inti Analisis:** (1–2 kalimat tajam)
+- **Probabilitas:** [X% Naik vs Y% Turun]
+- **Inti Analisis:** (1–2 kalimat tajam)
 
     ### 2. Prediksi Saham {kode}
-    - **Probabilitas:** [X% Naik vs Y% Turun]
-    - **Teknikal & Volume:** (1–2 kalimat)
-    - **Fundamental & Berita:** (1–2 kalimat)
-    - **Bullish / Bearish Case:** (singkat)
+- **Probabilitas:** [X% Naik vs Y% Turun]
+- **Teknikal & Volume:** (1–2 kalimat)
+- **Fundamental & Berita:** (1–2 kalimat)
+- **Bullish / Bearish Case:** (singkat)
 
     ### 3. Strategi Trading
-    - **Entry:** | **TP:** | **Cut Loss:**
+- **Entry:** | **TP:** | **Cut Loss:**
     *(Catatan singkat: analisis bersifat probabilistik, bukan ajakan mutlak membeli/menjual).*
     """
     return panggil_ai_aman(prompt, max_tokens=1600)
@@ -1447,6 +1525,16 @@ def popup_detail_saham(kode: str, ihsg_paket: dict):
 
         if st.session_state[key_analisis]:
             st.markdown(st.session_state[key_analisis])
+            if st.button(f"📲 Kirim Analisis {kode} ke Discord", key=f"dc_popup_{kode}"):
+                ok_dc, msg_dc = kirim_ke_discord(
+                    judul=f"📈 Analisis Saham {kode} (Rp {s_last:,.0f} | {s_pct:+.2f}%)",
+                    isi_pesan=st.session_state[key_analisis],
+                    warna=3066993 if s_diff >= 0 else 15158332
+                )
+                if ok_dc:
+                    st.toast(f"✅ {kode} terkirim ke Discord!", icon="📲")
+                else:
+                    st.error(f"Gagal kirim Discord: {msg_dc}")
 
         st.divider()
         st.markdown(f"#### 💬 Tanya AI Seputar Saham {kode}")
@@ -2194,6 +2282,29 @@ def render_hasil_screener_ai(paket_hasil: dict, top10_aktif: list, data_ihsg: di
     )
 
     with st.expander(judul_exp, expanded=True):
+        btn_dc_key = "btn_dc_screener_turun" if mode_turun else "btn_dc_screener_naik"
+        btn_dc_label = (
+            "📲 Kirim Laporan 10 Saham Turun ke Discord"
+            if mode_turun else
+            "📲 Kirim Laporan 10 Saham Naik ke Discord"
+        )
+        if st.button(btn_dc_label, key=btn_dc_key):
+            teks_dc = format_laporan_screener_discord(paket_hasil, top10_list, min_h_aktif, max_h_aktif, mode_turun=mode_turun)
+            judul_dc = (
+                f"📉 Laporan Top 10 Saham Potensi Turun (Rp {min_h_aktif:,} – Rp {max_h_aktif:,})"
+                if mode_turun else
+                f"🚀 Laporan Top 10 Saham Potensi Naik (Rp {min_h_aktif:,} – Rp {max_h_aktif:,})"
+            )
+            ok_dc, msg_dc = kirim_ke_discord(
+                judul=judul_dc,
+                isi_pesan=teks_dc,
+                warna=15158332 if mode_turun else 3066993
+            )
+            if ok_dc:
+                st.toast(f"✅ {msg_dc}", icon="📲")
+            else:
+                st.error(f"Gagal mengirim ke Discord: {msg_dc}")
+
         parsed = paket_hasil.get("parsed")
         if not isinstance(parsed, dict) and raw_teks:
             parsed = _ekstrak_json_ai(raw_teks)
@@ -2632,7 +2743,18 @@ with st.expander("💬 Tanya AI Seputar IHSG & Kondisi Pasar Hari Ini"):
                 st_mkt.update(label="Selesai", state="complete")
 
     with ihsg_chat_box:
-        for msg in st.session_state.chat_market:
+        for idx_m, msg in enumerate(st.session_state.chat_market):
             cls_m = "chat-user" if msg["role"] == "user" else "chat-ai"
             pref_m = "🧑 " if msg["role"] == "user" else ""
             st.markdown(f'<div class="{cls_m}">{pref_m}{msg["text"]}</div>', unsafe_allow_html=True)
+            if msg["role"] == "ai" and idx_m == len(st.session_state.chat_market) - 1:
+                if st.button("📲 Kirim Jawaban IHSG ke Discord", key=f"dc_ihsg_{idx_m}"):
+                    ok_dc, msg_dc = kirim_ke_discord(
+                        judul="🇮🇩 Analisis IHSG & Pasar Hari Ini",
+                        isi_pesan=msg["text"],
+                        warna=3066993
+                    )
+                    if ok_dc:
+                        st.toast(f"✅ {msg_dc}", icon="📲")
+                    else:
+                        st.error(f"Gagal kirim Discord: {msg_dc}")
