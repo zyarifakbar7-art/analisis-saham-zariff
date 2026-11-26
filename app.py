@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.error
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
@@ -334,8 +334,34 @@ gemini_client = (
 
 WIB_TZ = timezone(timedelta(hours=7))
 
+HARI_ID_MAP = {
+    0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis",
+    4: "Jumat", 5: "Sabtu", 6: "Minggu"
+}
+BULAN_ID_MAP = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "Mei", 6: "Jun",
+    7: "Jul", 8: "Agu", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Des"
+}
+
+# Daftar tanggal merah / libur bursa BEI (format "YYYY-MM-DD")
+LIBUR_BEI_SET = {
+    "2026-12-25",  # Hari Raya Natal
+}
+
 def waktu_wib_sekarang() -> datetime:
     return datetime.now(WIB_TZ)
+
+def _format_tgl_id(tgl: date) -> str:
+    return f"{HARI_ID_MAP[tgl.weekday()]}, {tgl.day:02d} {BULAN_ID_MAP[tgl.month]} {tgl.year}"
+
+def _is_hari_bursa_aktif(tgl: date) -> bool:
+    return tgl.weekday() < 5 and tgl.isoformat() not in LIBUR_BEI_SET
+
+def _hari_bursa_berikutnya(mulai_dari: date) -> date:
+    calon = mulai_dari + timedelta(days=1)
+    while not _is_hari_bursa_aktif(calon):
+        calon += timedelta(days=1)
+    return calon
 
 # ================= INTEGRASI DISCORD WEBHOOK =================
 def kirim_ke_discord(judul: str, isi_pesan: str, warna: int = 3066993) -> tuple:
@@ -416,17 +442,29 @@ def format_laporan_screener_discord(paket_hasil: dict, top10_list: list, min_h: 
 
 def status_jam_bursa_bei() -> dict:
     now_wib = waktu_wib_sekarang()
+    hari_ini = now_wib.date()
     hari = now_wib.weekday()
     menit_sekarang = now_wib.hour * 60 + now_wib.minute
     jam_str = now_wib.strftime("%H:%M:%S WIB")
 
-    if hari >= 5:
+    # Jika hari ini libur (akhir pekan atau tanggal merah di hari biasa)
+    if not _is_hari_bursa_aktif(hari_ini):
+        tgl_lanjut = _hari_bursa_berikutnya(hari_ini)
+        lanjut_str = _format_tgl_id(tgl_lanjut)
+        alasan_libur = "Akhir Pekan" if hari >= 5 else "Tanggal Merah / Libur Bursa"
+        label_singkat = "🔴 MARKET TUTUP (Akhir Pekan)" if hari >= 5 else "🔴 MARKET TUTUP (Tanggal Merah)"
         return {
-            "label": "🔴 MARKET TUTUP (Akhir Pekan)",
+            "label": label_singkat,
             "bg": "#2b161a", "fg": "#ff8080",
-            "info": f"Bursa buka kembali Senin pukul 09:00 WIB • {jam_str}"
+            "sesi_aktif": "Sesi 1",
+            "tanggal_lanjutan": tgl_lanjut,
+            "info": (
+                f"Pasar saham tutup ({alasan_libur} • {_format_tgl_id(hari_ini)}) dan akan dilanjutkan pada "
+                f"{lanjut_str} pukul 09:00 WIB (Sesi 1) • {jam_str}"
+            )
         }
 
+    # Hari kerja aktif (Senin - Jumat): setiap berganti hari (00:00 WIB) otomatis Sesi 1
     if hari == 4:
         sesi1_tutup = 11 * 60 + 30
         sesi2_buka = 14 * 60
@@ -444,46 +482,64 @@ def status_jam_bursa_bei() -> dict:
         j, m = divmod(sisa_m, 60)
         return f"{j} jam {m} mnt" if j > 0 else f"{m} menit"
 
+    sesi_berjalan = "Sesi 2" if menit_sekarang >= sesi2_buka else "Sesi 1"
+
     if menit_sekarang < pre_open:
         return {
-            "label": "⏸ PRA-PEMBUKAAN",
+            "label": "⏸ PRA-PEMBUKAAN • SESI 1",
             "bg": "#1c2432", "fg": "#9ecbff",
-            "info": f"Pre-Opening dimulai {format_sisa(pre_open)} lagi (08:45 WIB) • {jam_str}"
+            "sesi_aktif": "Sesi 1",
+            "tanggal_lanjutan": hari_ini,
+            "info": f"Fokus Sesi 1 ({_format_tgl_id(hari_ini)}) • Pre-Opening dimulai {format_sisa(pre_open)} lagi (08:45 WIB) • {jam_str}"
         }
     if pre_open <= menit_sekarang < sesi1_buka:
         return {
-            "label": "🟡 PRE-OPENING BEI",
+            "label": "🟡 PRE-OPENING BEI • SESI 1",
             "bg": "#2d2312", "fg": "#f5a623",
+            "sesi_aktif": "Sesi 1",
+            "tanggal_lanjutan": hari_ini,
             "info": f"Pembukaan Sesi 1 dalam {format_sisa(sesi1_buka)} (09:00 WIB) • {jam_str}"
         }
     if sesi1_buka <= menit_sekarang < sesi1_tutup:
         return {
             "label": "🟢 SESI 1 AKTIF",
             "bg": "#122b18", "fg": "#00c805",
+            "sesi_aktif": "Sesi 1",
+            "tanggal_lanjutan": hari_ini,
             "info": f"Istirahat Sesi 1 dalam {format_sisa(sesi1_tutup)} • {jam_str}"
         }
     if sesi1_tutup <= menit_sekarang < sesi2_buka:
         return {
             "label": "☕ ISTIRAHAT SIANG BEI",
             "bg": "#262115", "fg": "#e3b341",
+            "sesi_aktif": "Sesi 1",
+            "tanggal_lanjutan": hari_ini,
             "info": f"Sesi 2 dibuka dalam {format_sisa(sesi2_buka)} • Siapkan pantauan Sesi 2 • {jam_str}"
         }
     if sesi2_buka <= menit_sekarang < pre_close:
         return {
             "label": "🟢 SESI 2 AKTIF (Zona BSJP)",
             "bg": "#122b18", "fg": "#00c805",
+            "sesi_aktif": "Sesi 2",
+            "tanggal_lanjutan": hari_ini,
             "info": f"Pre-Closing dalam {format_sisa(pre_close)} (15:49 WIB) • {jam_str}"
         }
     if pre_close <= menit_sekarang < market_tutup:
         return {
             "label": "🟠 PRE-CLOSING & POST-TRADING",
             "bg": "#301e14", "fg": "#ff9e7d",
+            "sesi_aktif": sesi_berjalan,
+            "tanggal_lanjutan": _hari_bursa_berikutnya(hari_ini),
             "info": f"Penutupan penuh dalam {format_sisa(market_tutup)} (16:15 WIB) • {jam_str}"
         }
+
+    tgl_lanjut = _hari_bursa_berikutnya(hari_ini)
     return {
         "label": "🔴 MARKET TUTUP",
         "bg": "#2b161a", "fg": "#ff8080",
-        "info": f"Perdagangan hari ini selesai • Evaluasi Top Pick Esok Hari • {jam_str}"
+        "sesi_aktif": "Sesi 1",
+        "tanggal_lanjutan": tgl_lanjut,
+        "info": f"Pasar saham tutup hari ini • Dilanjutkan Sesi 1 pada {_format_tgl_id(tgl_lanjut)} pukul 09:00 WIB • {jam_str}"
     }
 
 DEFAULT_WATCHLIST = [
