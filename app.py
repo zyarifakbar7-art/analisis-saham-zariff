@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 try:
@@ -57,16 +58,6 @@ header[data-testid="stHeader"] { background-color: #0e1116; }
 .live-dot {
     width: 8px; height: 8px; background-color: #00c805;
     border-radius: 50%; animation: pulseDot 1.8s infinite;
-}
-.idx-session-banner {
-    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
-    background: linear-gradient(90deg, #131923 0%, #17202e 100%);
-    border: 1px solid #253042; border-radius: 10px;
-    padding: 7px 14px; margin-bottom: 10px; font-size: 12.5px;
-}
-.idx-session-pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: 11.5px;
 }
 .login-box-wrap {
     max-width: 420px; margin: 60px auto 20px auto;
@@ -445,7 +436,7 @@ def status_jam_bursa_bei() -> dict:
     now_wib = waktu_wib_sekarang()
     hari_ini = now_wib.date()
     hari = now_wib.weekday()
-    menit_sekarang = now_wib.hour * 60 + now_wib.minute
+    detik_sekarang = now_wib.hour * 3600 + now_wib.minute * 60 + now_wib.second
     jam_str = now_wib.strftime("%H:%M:%S WIB")
 
     if not _is_hari_bursa_aktif(hari_ini):
@@ -465,71 +456,76 @@ def status_jam_bursa_bei() -> dict:
         }
 
     if hari == 4:
-        sesi1_tutup = 11 * 60 + 30
-        sesi2_buka = 14 * 60
+        sesi1_tutup = 11 * 3600 + 30 * 60
+        sesi2_buka = 14 * 3600
     else:
-        sesi1_tutup = 12 * 60
-        sesi2_buka = 13 * 60 + 30
+        sesi1_tutup = 12 * 3600
+        sesi2_buka = 13 * 3600 + 30 * 60
 
-    pre_open = 8 * 60 + 45
-    sesi1_buka = 9 * 60
-    pre_close = 15 * 60 + 49
-    market_tutup = 16 * 60 + 15
+    pre_open = 8 * 3600 + 45 * 60
+    sesi1_buka = 9 * 3600
+    pre_close = 15 * 3600 + 49 * 60
+    market_tutup = 16 * 3600 + 15 * 60
 
-    def format_sisa(menit_target: int) -> str:
-        sisa_m = max(0, menit_target - menit_sekarang)
-        j, m = divmod(sisa_m, 60)
-        return f"{j} jam {m} mnt" if j > 0 else f"{m} menit"
+    def format_sisa_dtk(detik_target: int) -> str:
+        sisa = max(0, detik_target - detik_sekarang)
+        j, rem = divmod(sisa, 3600)
+        m, d = divmod(rem, 60)
+        if j > 0:
+            return f"{j} jam {m} mnt {d:02d} dtk"
+        if m > 0:
+            return f"{m} mnt {d:02d} dtk"
+        return f"{d} detik"
 
-    sesi_berjalan = "Sesi 2" if menit_sekarang >= sesi2_buka else "Sesi 1"
+    sesi_berjalan = "Sesi 2" if detik_sekarang >= sesi2_buka else "Sesi 1"
 
-    if menit_sekarang < pre_open:
+    if detik_sekarang < pre_open:
         return {
             "label": "⏸ PRA-PEMBUKAAN • SESI 1",
             "bg": "#1c2432", "fg": "#9ecbff",
             "sesi_aktif": "Sesi 1",
             "tanggal_lanjutan": hari_ini,
-            "info": f"Fokus Sesi 1 ({_format_tgl_id(hari_ini)}) • Pre-Opening dimulai {format_sisa(pre_open)} lagi (08:45 WIB) • {jam_str}"
+            "info": f"Fokus Sesi 1 ({_format_tgl_id(hari_ini)}) • Pre-Opening dalam {format_sisa_dtk(pre_open)} (08:45 WIB) • {jam_str}"
         }
-    if pre_open <= menit_sekarang < sesi1_buka:
+    if pre_open <= detik_sekarang < sesi1_buka:
         return {
             "label": "🟡 PRE-OPENING BEI • SESI 1",
             "bg": "#2d2312", "fg": "#f5a623",
             "sesi_aktif": "Sesi 1",
             "tanggal_lanjutan": hari_ini,
-            "info": f"Pembukaan Sesi 1 dalam {format_sisa(sesi1_buka)} (09:00 WIB) • {jam_str}"
+            "info": f"Pembukaan Sesi 1 dalam {format_sisa_dtk(sesi1_buka)} (09:00 WIB) • {jam_str}"
         }
-    if sesi1_buka <= menit_sekarang < sesi1_tutup:
+    if sesi1_buka <= detik_sekarang < sesi1_tutup:
         return {
             "label": "🟢 SESI 1 AKTIF",
             "bg": "#122b18", "fg": "#00c805",
             "sesi_aktif": "Sesi 1",
             "tanggal_lanjutan": hari_ini,
-            "info": f"Istirahat Sesi 1 dalam {format_sisa(sesi1_tutup)} • {jam_str}"
+            "info": f"Istirahat Sesi 1 dalam {format_sisa_dtk(sesi1_tutup)} • {jam_str}"
         }
-    if sesi1_tutup <= menit_sekarang < sesi2_buka:
+    if sesi1_tutup <= detik_sekarang < sesi2_buka:
         return {
             "label": "☕ ISTIRAHAT SIANG BEI",
             "bg": "#262115", "fg": "#e3b341",
             "sesi_aktif": "Sesi 1",
             "tanggal_lanjutan": hari_ini,
-            "info": f"Sesi 2 dibuka dalam {format_sisa(sesi2_buka)} • Siapkan pantauan Sesi 2 • {jam_str}"
+            "info": f"Sesi 2 dibuka dalam {format_sisa_dtk(sesi2_buka)} • {jam_str}"
         }
-    if sesi2_buka <= menit_sekarang < pre_close:
+    if sesi2_buka <= detik_sekarang < pre_close:
         return {
             "label": "🟢 SESI 2 AKTIF (Zona BSJP)",
             "bg": "#122b18", "fg": "#00c805",
             "sesi_aktif": "Sesi 2",
             "tanggal_lanjutan": hari_ini,
-            "info": f"Pre-Closing dalam {format_sisa(pre_close)} (15:49 WIB) • {jam_str}"
+            "info": f"Pre-Closing dalam {format_sisa_dtk(pre_close)} (15:49 WIB) • {jam_str}"
         }
-    if pre_close <= menit_sekarang < market_tutup:
+    if pre_close <= detik_sekarang < market_tutup:
         return {
             "label": "🟠 PRE-CLOSING & POST-TRADING",
             "bg": "#301e14", "fg": "#ff9e7d",
             "sesi_aktif": sesi_berjalan,
             "tanggal_lanjutan": _hari_bursa_berikutnya(hari_ini),
-            "info": f"Penutupan penuh dalam {format_sisa(market_tutup)} (16:15 WIB) • {jam_str}"
+            "info": f"Penutupan penuh dalam {format_sisa_dtk(market_tutup)} (16:15 WIB) • {jam_str}"
         }
 
     tgl_lanjut = _hari_bursa_berikutnya(hari_ini)
@@ -540,6 +536,176 @@ def status_jam_bursa_bei() -> dict:
         "tanggal_lanjutan": tgl_lanjut,
         "info": f"Pasar saham tutup hari ini • Dilanjutkan Sesi 1 pada {_format_tgl_id(tgl_lanjut)} pukul 09:00 WIB • {jam_str}"
     }
+
+def render_banner_jam_bursa_realtime():
+    sesi_init = status_jam_bursa_bei()
+    libur_json = json.dumps(sorted(list(LIBUR_BEI_SET)))
+
+    html_banner = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+      body {{
+        margin: 0; padding: 0; background: transparent;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }}
+      .idx-banner {{
+        display: flex; justify-content: space-between; align-items: center;
+        flex-wrap: wrap; gap: 8px;
+        background: linear-gradient(90deg, #131923 0%, #17202e 100%);
+        border: 1px solid #253042; border-radius: 10px;
+        padding: 7px 14px; font-size: 12.5px; color: #c9d1d9; box-sizing: border-box;
+      }}
+      .idx-left {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
+      .idx-brand {{ font-size: 14px; font-weight: 800; color: #00c805; letter-spacing: 0.2px; }}
+      .idx-pill {{
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: 11.5px;
+      }}
+      .idx-info {{ font-variant-numeric: tabular-nums; }}
+      .idx-note {{ color: #8b949e; font-size: 11.5px; }}
+    </style>
+    </head>
+    <body>
+      <div class="idx-banner">
+        <div class="idx-left">
+          <span class="idx-brand">📈 Analisis Saham by Zariff</span>
+          <span style="color:#303a4b;">|</span>
+          <span id="pill-status" class="idx-pill" style="background:{sesi_init['bg']}; color:{sesi_init['fg']};">{sesi_init['label']}</span>
+          <span id="info-status" class="idx-info">{sesi_init['info']}</span>
+        </div>
+        <span class="idx-note">⭐ Watchlist tersimpan otomatis di URL (aman di-bookmark)</span>
+      </div>
+
+      <script>
+        const LIBUR_SET = new Set({libur_json});
+        const NAMA_HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+        const NAMA_BULAN = ["", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+        function pad2(n) {{ return String(n).padStart(2, "0"); }}
+
+        function getWibParts() {{
+          const now = new Date();
+          const parts = new Intl.DateTimeFormat("en-CA", {{
+            timeZone: "Asia/Jakarta",
+            year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit", second: "2-digit",
+            hour12: false
+          }}).formatToParts(now);
+          const map = {{}};
+          for (const p of parts) map[p.type] = p.value;
+          const y = parseInt(map.year, 10);
+          const m = parseInt(map.month, 10);
+          const d = parseInt(map.day, 10);
+          const hh = parseInt(map.hour, 10);
+          const mm = parseInt(map.minute, 10);
+          const ss = parseInt(map.second, 10);
+          const utcDate = new Date(Date.UTC(y, m - 1, d));
+          const dow = utcDate.getUTCDay();
+          const iso = `${{y}}-${{pad2(m)}}-${{pad2(d)}}`;
+          return {{ y, m, d, hh, mm, ss, dow, iso, utcDate }};
+        }}
+
+        function formatTglId(utcDate) {{
+          const hName = NAMA_HARI[utcDate.getUTCDay()];
+          const d = pad2(utcDate.getUTCDate());
+          const bName = NAMA_BULAN[utcDate.getUTCMonth() + 1];
+          const y = utcDate.getUTCFullYear();
+          return `${{hName}}, ${{d}} ${{bName}} ${{y}}`;
+        }}
+
+        function isHariBursaAktif(utcDate, iso) {{
+          const dow = utcDate.getUTCDay();
+          return dow >= 1 && dow <= 5 && !LIBUR_SET.has(iso);
+        }}
+
+        function hariBursaBerikutnya(utcDate) {{
+          let cur = new Date(utcDate.getTime());
+          for (let i = 0; i < 14; i++) {{
+            cur = new Date(cur.getTime() + 86400000);
+            const iso = `${{cur.getUTCFullYear()}}-${{pad2(cur.getUTCMonth()+1)}}-${{pad2(cur.getUTCDate())}}`;
+            if (isHariBursaAktif(cur, iso)) return cur;
+          }}
+          return cur;
+        }}
+
+        function formatSisaDetik(targetSec, nowSec) {{
+          const diff = Math.max(0, targetSec - nowSec);
+          const j = Math.floor(diff / 3600);
+          const m = Math.floor((diff % 3600) / 60);
+          const s = diff % 60;
+          if (j > 0) return `${{j}} jam ${{m}} mnt ${{pad2(s)}} dtk`;
+          if (m > 0) return `${{m}} mnt ${{pad2(s)}} dtk`;
+          return `${{s}} detik`;
+        }}
+
+        function updateBanner() {{
+          const p = getWibParts();
+          const jamStr = `${{pad2(p.hh)}}:${{pad2(p.mm)}}:${{pad2(p.ss)}} WIB`;
+          const pill = document.getElementById("pill-status");
+          const info = document.getElementById("info-status");
+          if (!pill || !info) return;
+
+          if (!isHariBursaAktif(p.utcDate, p.iso)) {{
+            const nextDay = hariBursaBerikutnya(p.utcDate);
+            const isWeekend = (p.dow === 0 || p.dow === 6);
+            pill.textContent = isWeekend ? "🔴 MARKET TUTUP (Akhir Pekan)" : "🔴 MARKET TUTUP (Tanggal Merah)";
+            pill.style.background = "#2b161a";
+            pill.style.color = "#ff8080";
+            info.textContent = `Pasar saham tutup (${{isWeekend ? "Akhir Pekan" : "Libur Bursa"}} • ${{formatTglId(p.utcDate)}}) • Lanjut ${{formatTglId(nextDay)}} 09:00 WIB • ${{jamStr}}`;
+            return;
+          }}
+
+          const nowSec = p.hh * 3600 + p.mm * 60 + p.ss;
+          const isFriday = (p.dow === 5);
+          const preOpen = 8 * 3600 + 45 * 60;
+          const sesi1Buka = 9 * 3600;
+          const sesi1Tutup = isFriday ? (11 * 3600 + 30 * 60) : (12 * 3600);
+          const sesi2Buka = isFriday ? (14 * 3600) : (13 * 3600 + 30 * 60);
+          const preClose = 15 * 3600 + 49 * 60;
+          const marketTutup = 16 * 3600 + 15 * 60;
+
+          if (nowSec < preOpen) {{
+            pill.textContent = "⏸ PRA-PEMBUKAAN • SESI 1";
+            pill.style.background = "#1c2432"; pill.style.color = "#9ecbff";
+            info.textContent = `Fokus Sesi 1 (${{formatTglId(p.utcDate)}}) • Pre-Opening dalam ${{formatSisaDetik(preOpen, nowSec)}} (08:45 WIB) • ${{jamStr}}`;
+          }} else if (nowSec < sesi1Buka) {{
+            pill.textContent = "🟡 PRE-OPENING BEI • SESI 1";
+            pill.style.background = "#2d2312"; pill.style.color = "#f5a623";
+            info.textContent = `Pembukaan Sesi 1 dalam ${{formatSisaDetik(sesi1Buka, nowSec)}} (09:00 WIB) • ${{jamStr}}`;
+          }} else if (nowSec < sesi1Tutup) {{
+            pill.textContent = "🟢 SESI 1 AKTIF";
+            pill.style.background = "#122b18"; pill.style.color = "#00c805";
+            info.textContent = `Istirahat Sesi 1 dalam ${{formatSisaDetik(sesi1Tutup, nowSec)}} • ${{jamStr}}`;
+          }} else if (nowSec < sesi2Buka) {{
+            pill.textContent = "☕ ISTIRAHAT SIANG BEI";
+            pill.style.background = "#262115"; pill.style.color = "#e3b341";
+            info.textContent = `Sesi 2 dibuka dalam ${{formatSisaDetik(sesi2Buka, nowSec)}} • ${{jamStr}}`;
+          }} else if (nowSec < preClose) {{
+            pill.textContent = "🟢 SESI 2 AKTIF (Zona BSJP)";
+            pill.style.background = "#122b18"; pill.style.color = "#00c805";
+            info.textContent = `Pre-Closing dalam ${{formatSisaDetik(preClose, nowSec)}} (15:49 WIB) • ${{jamStr}}`;
+          }} else if (nowSec < marketTutup) {{
+            pill.textContent = "🟠 PRE-CLOSING & POST-TRADING";
+            pill.style.background = "#301e14"; pill.style.color = "#ff9e7d";
+            info.textContent = `Penutupan penuh dalam ${{formatSisaDetik(marketTutup, nowSec)}} (16:15 WIB) • ${{jamStr}}`;
+          }} else {{
+            const nextDay = hariBursaBerikutnya(p.utcDate);
+            pill.textContent = "🔴 MARKET TUTUP";
+            pill.style.background = "#2b161a"; pill.style.color = "#ff8080";
+            info.textContent = `Pasar saham tutup hari ini • Dilanjutkan Sesi 1 pada ${{formatTglId(nextDay)}} pukul 09:00 WIB • ${{jamStr}}`;
+          }}
+        }}
+
+        updateBanner();
+        setInterval(updateBanner, 1000);
+      </script>
+    </body>
+    </html>
+    """
+    components.html(html_banner, height=48, scrolling=False)
 
 def konteks_sesi_screener() -> dict:
     now_wib = waktu_wib_sekarang()
@@ -570,7 +736,7 @@ def konteks_sesi_screener() -> dict:
             "label_short_2": "Sesi 2 Hari Ini",
             "fokus_pilihan": "Sesi 1 Hari Ini / Sesi 2 Hari Ini / Keduanya",
             "instruksi_waktu": (
-                f"Sekarang jam {now_wib.strftime('%H:%M WIB')} ({_format_tgl_id(hari_ini)}), "
+                f"Sekarang jam {now_wib.strftime('%H:%M:%S WIB')} ({_format_tgl_id(hari_ini)}), "
                 f"Sesi 1 belum buka (buka 09:00 WIB). Fokuskan analisis untuk Sesi 1 dan Sesi 2 hari ini, "
                 f"bukan 'Esok'."
             ),
@@ -581,7 +747,7 @@ def konteks_sesi_screener() -> dict:
             "label_short_2": "Sesi 2 Hari Ini",
             "fokus_pilihan": "Sesi 1 / Sesi 2 Hari Ini / Keduanya",
             "instruksi_waktu": (
-                f"Sekarang jam {now_wib.strftime('%H:%M WIB')} ({_format_tgl_id(hari_ini)}) saat Sesi 1 berlangsung. "
+                f"Sekarang jam {now_wib.strftime('%H:%M:%S WIB')} ({_format_tgl_id(hari_ini)}) saat Sesi 1 berlangsung. "
                 f"Fokuskan pada lanjutan Sesi 1 dan persiapan Sesi 2 hari ini."
             ),
         }
@@ -592,7 +758,7 @@ def konteks_sesi_screener() -> dict:
         "label_short_2": f"Esok ({_format_tgl_id(tgl_besok)})",
         "fokus_pilihan": "Sesi 2 / Esok / Keduanya",
         "instruksi_waktu": (
-            f"Sekarang jam {now_wib.strftime('%H:%M WIB')} ({_format_tgl_id(hari_ini)}) saat/setelah Sesi 2. "
+            f"Sekarang jam {now_wib.strftime('%H:%M:%S WIB')} ({_format_tgl_id(hari_ini)}) saat/setelah Sesi 2. "
             f"Fokuskan pada Sesi 2 hari ini dan potensi hari bursa berikutnya ({_format_tgl_id(tgl_besok)})."
         ),
     }
@@ -1382,7 +1548,7 @@ def _ekstrak_json_ai(teks: str):
 def buat_konteks_saham(kode: str, data_ihsg: dict, data_saham: dict, info: dict, berita_ihsg: str, berita_saham: str) -> str:
     ks = konteks_sesi_screener()
     return f"""
-    Waktu WIB: {waktu_wib_sekarang().strftime('%A, %d %b %Y %H:%M WIB')} | {ks['instruksi_waktu']}
+    Waktu WIB: {waktu_wib_sekarang().strftime('%A, %d %b %Y %H:%M:%S WIB')} | {ks['instruksi_waktu']}
     IHSG (^JKSE): {_angka_aman(data_ihsg.get('harga', 0)):,.2f} ({_angka_aman(data_ihsg.get('pct', 0)):+.2f}%) | MA20: {_angka_aman(data_ihsg.get('ind', {}).get('ma20', 0)):,.2f} | RSI: {_angka_aman(data_ihsg.get('ind', {}).get('rsi', 0)):.1f} | Sup: {_angka_aman(data_ihsg.get('ind', {}).get('support', 0)):,.2f} | Res: {_angka_aman(data_ihsg.get('ind', {}).get('resistance', 0)):,.2f}
     Berita IHSG:
     {berita_ihsg}
@@ -1728,21 +1894,9 @@ if "filter_max_harga" not in st.session_state:
 if "filter_min_tx_miliar" not in st.session_state:
     st.session_state.filter_min_tx_miliar = 1.0
 
-# ================= HEADER BRANDING, BANNER JAM BURSA BEI & BILAH PENCARIAN ATAS =================
-sesi_bei = status_jam_bursa_bei()
+# ================= HEADER BRANDING, BANNER JAM BURSA REALTIME & BILAH PENCARIAN ATAS =================
 ks_aktif = konteks_sesi_screener()
-st.markdown(
-    f'<div class="idx-session-banner">'
-    f'<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'
-    f'<span style="font-size:14px; font-weight:800; color:#00c805; letter-spacing:0.2px;">📈 Analisis Saham by Zariff</span>'
-    f'<span style="color:#303a4b;">|</span>'
-    f'<span class="idx-session-pill" style="background:{sesi_bei["bg"]}; color:{sesi_bei["fg"]};">{sesi_bei["label"]}</span>'
-    f'<span style="color:#c9d1d9;">{sesi_bei["info"]}</span>'
-    f'</div>'
-    f'<span style="color:#8b949e; font-size:11.5px;">⭐ Watchlist tersimpan otomatis di URL (aman di-bookmark)</span>'
-    f'</div>',
-    unsafe_allow_html=True
-)
+render_banner_jam_bursa_realtime()
 
 s_bar1, s_bar2, s_bar3 = st.columns([3.1, 1.8, 1.1])
 with s_bar1:
@@ -2016,7 +2170,6 @@ def hitung_skor_semua_saham(tickers: tuple):
                 if p_30m > 0:
                     pct_30m = ((last_price - p_30m) / p_30m) * 100.0
 
-            # ===== 1. SKOR PREDIKSI NAIK =====
             skor_naik_s2 = 45.0
             if last_price >= vwap_i:
                 skor_naik_s2 += 12.0
@@ -2053,7 +2206,6 @@ def hitung_skor_semua_saham(tickers: tuple):
             skor_naik_esok = round(min(max(skor_naik_esok, 10.0), 99.0), 1)
             skor_naik_total = round((skor_naik_s2 * 0.5) + (skor_naik_esok * 0.5), 1)
 
-            # ===== 2. SKOR PREDIKSI TURUN / KOREKSI =====
             skor_turun_s2 = 45.0
             if last_price < vwap_i:
                 skor_turun_s2 += 12.0
@@ -2204,7 +2356,7 @@ def prediksi_10_saham_naik_ai(top10: list, data_ihsg: dict, min_h: int, max_h: i
         "sig": signature_top10(top10),
         "min_h": min_h,
         "max_h": max_h,
-        "waktu": waktu_wib_sekarang().strftime("%H:%M WIB")
+        "waktu": waktu_wib_sekarang().strftime("%H:%M:%S WIB")
     }
 
 def prediksi_10_saham_turun_ai(top10_turun: list, data_ihsg: dict, min_h: int, max_h: int) -> dict:
@@ -2274,7 +2426,7 @@ def prediksi_10_saham_turun_ai(top10_turun: list, data_ihsg: dict, min_h: int, m
         "sig": signature_top10(top10_turun),
         "min_h": min_h,
         "max_h": max_h,
-        "waktu": waktu_wib_sekarang().strftime("%H:%M WIB")
+        "waktu": waktu_wib_sekarang().strftime("%H:%M:%S WIB")
     }
 
 def _badge_fokus_html(fokus_str: str, mode_turun: bool = False) -> str:
