@@ -270,6 +270,41 @@ div[data-testid="stDialog"] div[role="dialog"] {
     background-color: #191316; border-left: 3px solid #ff3b30; padding: 11px 15px;
     border-radius: 4px 12px 12px 12px; margin: 4px 0 12px 0; color: #e6edf3; font-size: 13.5px;
 }
+
+/* ================= PENYESUAIAN KHUSUS LAYAR HP (PC TIDAK BERUBAH) ================= */
+@media (max-width: 768px) {
+  .stApp { padding-left: 0.25rem; padding-right: 0.25rem; }
+  .idx-banner { padding: 7px 10px; font-size: 11.5px; }
+  .idx-brand { font-size: 13px; }
+  .idx-pill { font-size: 10.5px; padding: 2px 8px; }
+  .idx-note { font-size: 10.5px; }
+
+  .popup-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .popup-stat-val { font-size: 13px; }
+
+  .ob-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 10px; padding: 8px 10px; font-size: 11px; }
+  .ob-sum-bar { font-size: 11px; padding: 6px 8px; }
+  .ob-table { font-size: 10.5px; }
+  .rt-table { font-size: 10.5px; }
+
+  .sb-row { padding: 8px 10px; min-height: 52px; }
+  .sb-left { width: 54%; min-width: 0; gap: 7px; }
+  .sb-logo-img, .sb-avatar-fallback { width: 30px !important; height: 30px !important; }
+  .sb-ticker { font-size: 13px; }
+  .sb-name { max-width: 110px; font-size: 10px; }
+  .sb-mid { width: 16%; }
+  .sb-mid svg { width: 56px; height: 20px; }
+  .sb-right { width: 30%; }
+  .sb-price { font-size: 13px; }
+  .sb-chg { font-size: 10px; }
+
+  .sc-card, .sc-card-down { padding: 8px 9px; }
+  .news-card { padding: 10px; gap: 8px; }
+  .news-title-link { font-size: 12.5px; }
+  .news-thumb, .news-thumb-fallback { width: 72px; height: 50px; }
+
+  .ai-tbl th, .ai-tbl td { padding: 7px 8px; font-size: 11px; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -353,6 +388,14 @@ def _hari_bursa_berikutnya(mulai_dari: date) -> date:
     while not _is_hari_bursa_aktif(calon):
         calon += timedelta(days=1)
     return calon
+
+def _is_mobile_ua() -> bool:
+    try:
+        headers = getattr(st.context, "headers", {}) or {}
+        ua = str(headers.get("User-Agent", "")).lower()
+        return any(k in ua for k in ("iphone", "android", "mobile", "opera mini"))
+    except Exception:
+        return False
 
 # ================= INTEGRASI DISCORD WEBHOOK =================
 def kirim_ke_discord(judul: str, isi_pesan: str, warna: int = 3066993) -> tuple:
@@ -566,6 +609,12 @@ def render_banner_jam_bursa_realtime():
       }}
       .idx-info {{ font-variant-numeric: tabular-nums; }}
       .idx-note {{ color: #8b949e; font-size: 11.5px; }}
+      @media (max-width: 768px) {{
+        .idx-banner {{ padding: 7px 10px; font-size: 11.5px; gap: 6px; }}
+        .idx-brand {{ font-size: 13px; }}
+        .idx-pill {{ font-size: 10.5px; padding: 2px 8px; }}
+        .idx-note {{ font-size: 10.5px; }}
+      }}
     </style>
     </head>
     <body>
@@ -585,6 +634,13 @@ def render_banner_jam_bursa_realtime():
         const NAMA_BULAN = ["", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
         function pad2(n) {{ return String(n).padStart(2, "0"); }}
+
+        function fitFrame() {{
+          if (window.frameElement && window.innerWidth <= 768) {{
+            const h = document.documentElement.scrollHeight;
+            if (h > 48) window.frameElement.style.height = (h + 4) + "px";
+          }}
+        }}
 
         function getWibParts() {{
           const now = new Date();
@@ -655,6 +711,7 @@ def render_banner_jam_bursa_realtime():
             pill.style.background = "#2b161a";
             pill.style.color = "#ff8080";
             info.textContent = `Pasar saham tutup (${{isWeekend ? "Akhir Pekan" : "Libur Bursa"}} • ${{formatTglId(p.utcDate)}}) • Lanjut ${{formatTglId(nextDay)}} 09:00 WIB • ${{jamStr}}`;
+            fitFrame();
             return;
           }}
 
@@ -697,6 +754,7 @@ def render_banner_jam_bursa_realtime():
             pill.style.background = "#2b161a"; pill.style.color = "#ff8080";
             info.textContent = `Pasar saham tutup hari ini • Dilanjutkan Sesi 1 pada ${{formatTglId(nextDay)}} pukul 09:00 WIB • ${{jamStr}}`;
           }}
+          fitFrame();
         }}
 
         updateBanner();
@@ -1930,7 +1988,7 @@ def render_kolom_kiri(ihsg_paket_out: dict):
     )
 
     i_hist = ihsg_hist.dropna(subset=["Close"]) if not ihsg_hist.empty and "Close" in ihsg_hist.columns else pd.DataFrame()
-    i_df = ihsg_df.dropna(subset=["Close"]) if not ihsg_df.empty and "Close" in ihsg_df.columns else pd.DataFrame()
+    i_df = ihsg_df.dropna(subset=["Close"]) if not i_df.empty and "Close" in i_df.columns else pd.DataFrame()
 
     if not i_hist.empty or not i_df.empty:
         ihsg_last = _angka_aman(i_df['Close'].iloc[-1] if not i_df.empty else i_hist['Close'].iloc[-1], 0.0)
@@ -2857,10 +2915,12 @@ with col_sc_info:
 with col_sc_btn:
     klik_scan_naik_ai = st.button(f"🔮 Analisis 10 Saham Naik • {ks_aktif['label_short_1']} & {ks_aktif['label_short_2']} (Groq AI)", type="primary", use_container_width=True)
 
+jml_kol_sc = 2 if _is_mobile_ua() else 5
+
 if top10_naik:
-    for row_start in range(0, len(top10_naik), 5):
-        baris_items = top10_naik[row_start:row_start + 5]
-        cols_baris = st.columns(5)
+    for row_start in range(0, len(top10_naik), jml_kol_sc):
+        baris_items = top10_naik[row_start:row_start + jml_kol_sc]
+        cols_baris = st.columns(jml_kol_sc)
         for idx_col, item_s in enumerate(baris_items):
             idx_global = row_start + idx_col
             w_pct = "#00c805" if item_s["pct_day"] >= 0 else "#ff3b30"
@@ -2936,9 +2996,9 @@ with col_dn_btn:
     klik_scan_turun_ai = st.button(f"📉 Analisis 10 Saham Turun • {ks_aktif['label_short_1']} & {ks_aktif['label_short_2']} (Groq AI)", use_container_width=True)
 
 if top10_turun:
-    for row_start in range(0, len(top10_turun), 5):
-        baris_items = top10_turun[row_start:row_start + 5]
-        cols_baris = st.columns(5)
+    for row_start in range(0, len(top10_turun), jml_kol_sc):
+        baris_items = top10_turun[row_start:row_start + jml_kol_sc]
+        cols_baris = st.columns(jml_kol_sc)
         for idx_col, item_s in enumerate(baris_items):
             idx_global = row_start + idx_col
             w_pct = "#00c805" if item_s["pct_day"] >= 0 else "#ff3b30"
