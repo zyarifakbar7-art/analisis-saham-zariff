@@ -1988,7 +1988,7 @@ def render_kolom_kiri(ihsg_paket_out: dict):
     )
 
     i_hist = ihsg_hist.dropna(subset=["Close"]) if not ihsg_hist.empty and "Close" in ihsg_hist.columns else pd.DataFrame()
-    i_df = ihsg_df.dropna(subset=["Close"]) if not i_df.empty and "Close" in i_df.columns else pd.DataFrame()
+    i_df = ihsg_df.dropna(subset=["Close"]) if not ihsg_df.empty and "Close" in ihsg_df.columns else pd.DataFrame()
 
     if not i_hist.empty or not i_df.empty:
         ihsg_last = _angka_aman(i_df['Close'].iloc[-1] if not i_df.empty else i_hist['Close'].iloc[-1], 0.0)
