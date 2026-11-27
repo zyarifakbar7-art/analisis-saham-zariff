@@ -3133,6 +3133,14 @@ def render_portfolio_tracker(semua_skor: list, data_ihsg: dict):
 
         if kd in st.session_state.my_portfolio_ai_res:
             with st.expander(f"🔎 Radar Berita & Skenario Naik/Turun — {kd} (Avg Rp {hrg_m:,.0f})", expanded=True):
+                col_res_lbl, col_res_close = st.columns([5.3, 0.7], vertical_alignment="center")
+                with col_res_lbl:
+                    st.caption(f"Hasil analisis AI untuk **{kd}** • Klik **✖** di kanan untuk menghapus jawaban ini.")
+                with col_res_close:
+                    if st.button("✖", key=f"btn_port_close_ai_{kd}_{idx_p}", help="Hapus hasil analisis ini", use_container_width=True):
+                        st.session_state.my_portfolio_ai_res.pop(kd, None)
+                        st.rerun()
+
                 st.markdown(st.session_state.my_portfolio_ai_res[kd])
 
                 c_dc, c_q, c_send = st.columns([1.4, 3.2, 1.1], vertical_alignment="bottom")
@@ -3162,19 +3170,80 @@ def render_portfolio_tracker(semua_skor: list, data_ihsg: dict):
                             )
                         st.rerun()
 
-# ================= DATA SCREENER & PARAMETER FILTER =================
+# ================= DATA SCREENER & FILTER HARGA (DI ATAS TOP 10) =================
+kode_port_aktif = [p["ticker"] for p in st.session_state.my_portfolio_list]
+semesta_saham = tuple(dict.fromkeys(st.session_state.watchlist + kode_port_aktif + DEFAULT_TRENDING + EXTRA_SCAN_POOL))
+semua_skor_saham = hitung_skor_semua_saham(semesta_saham)
+paket_sc = ihsg_paket_runtime if ihsg_paket_runtime else st.session_state.ihsg_paket_cache
+jml_kol_sc = 2 if _is_mobile_ua() else 5
+
+st.write("")
+st.markdown(
+    '<div style="margin-top:6px; margin-bottom:6px;">'
+    '<span style="color:#00c805; font-weight:700; font-size:15px; border-bottom:2px solid #00c805; padding-bottom:4px;">🎛️ FILTER HARGA &amp; LIKUIDITAS SCREENER (PREDIKSI NAIK &amp; TURUN)</span>'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+PRESET_RENTANG_HARGA = {
+    "Rp 0 – Rp 5.000": (0, 5000),
+    "Rp 100 – Rp 1.000": (100, 1000),
+    "Rp 50 – Rp 500": (50, 500),
+    "Rp 1.000 – Rp 10.000": (1000, 10000),
+    "Semua Harga (Rp 0 – Rp 100.000)": (0, 100000),
+}
+
+def terapkan_preset_harga():
+    pilihan = st.session_state.get("preset_harga_pilihan", "Rp 0 – Rp 5.000")
+    if pilihan in PRESET_RENTANG_HARGA:
+        mn, mx = PRESET_RENTANG_HARGA[pilihan]
+        st.session_state.filter_min_harga = mn
+        st.session_state.filter_max_harga = mx
+
+f_col_preset, f_col_min, f_col_max, f_col_liq, f_col_stat, f_col_sync = st.columns([1.45, 1.0, 1.0, 1.05, 1.35, 1.15], vertical_alignment="bottom")
+with f_col_preset:
+    st.selectbox(
+        "Preset Cepat",
+        options=list(PRESET_RENTANG_HARGA.keys()),
+        key="preset_harga_pilihan",
+        on_change=terapkan_preset_harga
+    )
+with f_col_min:
+    st.number_input("Harga Min (Rp)", min_value=0, max_value=500000, step=50, key="filter_min_harga")
+with f_col_max:
+    st.number_input("Harga Max (Rp)", min_value=1, max_value=500000, step=100, key="filter_max_harga")
+with f_col_liq:
+    st.number_input(
+        "Min Transaksi (Miliar Rp)",
+        min_value=0.0,
+        max_value=500.0,
+        step=0.5,
+        key="filter_min_tx_miliar",
+        help="Saring saham sepi agar kandidat yang tampil benar-benar likuid."
+    )
+
 harga_min_aktif = min(int(st.session_state.filter_min_harga), int(st.session_state.filter_max_harga))
 harga_max_aktif = max(int(st.session_state.filter_min_harga), int(st.session_state.filter_max_harga))
 min_tx_aktif = float(st.session_state.filter_min_tx_miliar)
 
-kode_port_aktif = [p["ticker"] for p in st.session_state.my_portfolio_list]
-semesta_saham = tuple(dict.fromkeys(st.session_state.watchlist + kode_port_aktif + DEFAULT_TRENDING + EXTRA_SCAN_POOL))
-semua_skor_saham = hitung_skor_semua_saham(semesta_saham)
 top10_naik, top5_turun, jumlah_lolos_filter = saring_top10_naik_dan_top5_turun(
     semua_skor_saham, harga_min_aktif, harga_max_aktif, min_tx_aktif
 )
-paket_sc = ihsg_paket_runtime if ihsg_paket_runtime else st.session_state.ihsg_paket_cache
-jml_kol_sc = 2 if _is_mobile_ua() else 5
+
+with f_col_stat:
+    st.markdown(
+        f'<div class="filter-info-pill">'
+        f'Rp {harga_min_aktif:,}–{harga_max_aktif:,} • Tx ≥ <b style="color:#00c805;">{min_tx_aktif:.1f}B</b><br>'
+        f'<span style="color:#8b949e; font-size:11px;">{jumlah_lolos_filter} emiten likuid lolos</span>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+with f_col_sync:
+    st.toggle(
+        "🔄 Auto-Sync AI",
+        key="auto_sync_ai_top10",
+        help="Otomatis memperbarui analisis AI setiap kali daftar Top Saham berubah."
+    )
 
 # ---------------- BAGIAN 1: PREDIKSI 10 SAHAM NAIK (URUTAN KIRI ATAS = TERKUAT) ----------------
 st.write("")
@@ -3332,68 +3401,8 @@ if st.session_state.hasil_prediksi_turun_sesi2_besok:
         mode_turun=True
     )
 
-# ---------------- BAGIAN 3: PORTFOLIO TRACKER (TEPAT DI BAWAH 5 SAHAM TURUN) ----------------
+# ---------------- BAGIAN 3: PORTFOLIO TRACKER ----------------
 render_portfolio_tracker(semua_skor_saham, paket_sc)
-
-# ---------------- BAGIAN 4: FILTER HARGA & LIKUIDITAS SCREENER ----------------
-st.write("")
-st.markdown(
-    '<div style="margin-top:8px; margin-bottom:6px;">'
-    '<span style="color:#00c805; font-weight:700; font-size:15px; border-bottom:2px solid #00c805; padding-bottom:4px;">🎛️ FILTER HARGA &amp; LIKUIDITAS SCREENER (PREDIKSI NAIK &amp; TURUN)</span>'
-    '</div>',
-    unsafe_allow_html=True
-)
-
-PRESET_RENTANG_HARGA = {
-    "Rp 0 – Rp 5.000": (0, 5000),
-    "Rp 100 – Rp 1.000": (100, 1000),
-    "Rp 50 – Rp 500": (50, 500),
-    "Rp 1.000 – Rp 10.000": (1000, 10000),
-    "Semua Harga (Rp 0 – Rp 100.000)": (0, 100000),
-}
-
-def terapkan_preset_harga():
-    pilihan = st.session_state.get("preset_harga_pilihan", "Rp 0 – Rp 5.000")
-    if pilihan in PRESET_RENTANG_HARGA:
-        mn, mx = PRESET_RENTANG_HARGA[pilihan]
-        st.session_state.filter_min_harga = mn
-        st.session_state.filter_max_harga = mx
-
-f_col_preset, f_col_min, f_col_max, f_col_liq, f_col_stat, f_col_sync = st.columns([1.45, 1.0, 1.0, 1.05, 1.35, 1.15], vertical_alignment="bottom")
-with f_col_preset:
-    st.selectbox(
-        "Preset Cepat",
-        options=list(PRESET_RENTANG_HARGA.keys()),
-        key="preset_harga_pilihan",
-        on_change=terapkan_preset_harga
-    )
-with f_col_min:
-    st.number_input("Harga Min (Rp)", min_value=0, max_value=500000, step=50, key="filter_min_harga")
-with f_col_max:
-    st.number_input("Harga Max (Rp)", min_value=1, max_value=500000, step=100, key="filter_max_harga")
-with f_col_liq:
-    st.number_input(
-        "Min Transaksi (Miliar Rp)",
-        min_value=0.0,
-        max_value=500.0,
-        step=0.5,
-        key="filter_min_tx_miliar",
-        help="Saring saham sepi agar kandidat yang tampil benar-benar likuid."
-    )
-with f_col_stat:
-    st.markdown(
-        f'<div class="filter-info-pill">'
-        f'Rp {harga_min_aktif:,}–{harga_max_aktif:,} • Tx ≥ <b style="color:#00c805;">{min_tx_aktif:.1f}B</b><br>'
-        f'<span style="color:#8b949e; font-size:11px;">{jumlah_lolos_filter} emiten likuid lolos</span>'
-        f'</div>',
-        unsafe_allow_html=True
-    )
-with f_col_sync:
-    st.toggle(
-        "🔄 Auto-Sync AI",
-        key="auto_sync_ai_top10",
-        help="Otomatis memperbarui analisis AI setiap kali daftar Top Saham berubah."
-    )
 
 # ================= KOTAK TANYA AI PASAR & IHSG =================
 st.write("")
