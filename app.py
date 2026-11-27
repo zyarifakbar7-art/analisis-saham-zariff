@@ -624,7 +624,7 @@ def render_banner_jam_bursa_realtime():
           <span id="pill-status" class="idx-pill" style="background:{sesi_init['bg']}; color:{sesi_init['fg']};">{sesi_init['label']}</span>
           <span id="info-status" class="idx-info">{sesi_init['info']}</span>
         </div>
-        <span class="idx-note">⭐ Watchlist &amp; Portfolio tersimpan otomatis di URL</span>
+        <span class="idx-note">☁️ Watchlist &amp; Portfolio sinkron otomatis PC ↔ HP</span>
       </div>
 
       <script>
@@ -931,18 +931,78 @@ def format_teks_ai_aman(teks: str) -> str:
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
     return escaped
 
-# ================= WATCHLIST & PORTFOLIO PERMANEN VIA QUERY PARAMS =================
+# ================= WATCHLIST & PORTFOLIO SINKRON CLOUD (GITHUB GIST + URL) =================
+github_token_sync = ambil_secret_aman("GITHUB_TOKEN")
+gist_id_sync = ambil_secret_aman("GIST_ID")
+
+def _baca_cloud_gist() -> dict:
+    if not github_token_sync or not gist_id_sync:
+        return {}
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/gists/{gist_id_sync}",
+            headers={
+                "Authorization": f"Bearer {github_token_sync}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            files = data.get("files") or {}
+            if files:
+                first_file = next(iter(files.values()))
+                konten = first_file.get("content", "{}")
+                parsed = json.loads(konten)
+                return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def _tulis_cloud_gist(wl_list: list, pos_list: list):
+    if not github_token_sync or not gist_id_sync:
+        return
+    try:
+        payload = {
+            "files": {
+                "saham_sync.json": {
+                    "content": json.dumps({
+                        "watchlist": wl_list,
+                        "portfolio": pos_list,
+                        "updated_at": waktu_wib_sekarang().strftime("%Y-%m-%d %H:%M:%S WIB")
+                    }, ensure_ascii=False, indent=2)
+                }
+            }
+        }
+        req = urllib.request.Request(
+            f"https://api.github.com/gists/{gist_id_sync}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {github_token_sync}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            },
+            method="PATCH"
+        )
+        with urllib.request.urlopen(req, timeout=6):
+            pass
+    except Exception:
+        pass
 
 def muat_watchlist_awal() -> list:
+    cloud = _baca_cloud_gist()
+    wl_cloud = cloud.get("watchlist")
+    if isinstance(wl_cloud, list) and wl_cloud:
+        valid_c = list(dict.fromkeys([re.sub(r"[^A-Z0-9]", "", str(k).upper().strip()) for k in wl_cloud if 2 <= len(str(k).strip()) <= 6]))
+        if valid_c:
+            return valid_c
     try:
         raw_wl = st.query_params.get("wl", "")
         if isinstance(raw_wl, list):
             raw_wl = ",".join(raw_wl)
         if raw_wl:
-            parsed = [
-                re.sub(r"[^A-Z0-9]", "", k.upper().strip())
-                for k in str(raw_wl).split(",")
-            ]
+            parsed = [re.sub(r"[^A-Z0-9]", "", k.upper().strip()) for k in str(raw_wl).split(",")]
             valid = list(dict.fromkeys([k for k in parsed if 2 <= len(k) <= 6]))
             if valid:
                 return valid
@@ -951,14 +1011,19 @@ def muat_watchlist_awal() -> list:
     return DEFAULT_WATCHLIST.copy()
 
 def simpan_watchlist_ke_url(daftar_wl: list):
+    bersih = list(dict.fromkeys([k.upper().strip() for k in daftar_wl if k]))
     try:
-        bersih = list(dict.fromkeys([k.upper().strip() for k in daftar_wl if k]))
         if bersih:
             st.query_params["wl"] = ",".join(bersih)
     except Exception:
         pass
+    _tulis_cloud_gist(bersih, st.session_state.get("my_portfolio_list", []))
 
 def muat_posisi_dari_url() -> list:
+    cloud = _baca_cloud_gist()
+    pos_cloud = cloud.get("portfolio")
+    if isinstance(pos_cloud, list):
+        return pos_cloud
     try:
         raw = str(st.query_params.get("pos", "") or "").strip()
     except Exception:
@@ -988,21 +1053,22 @@ def simpan_posisi_ke_url(daftar_pos: list):
         if not daftar_pos:
             if "pos" in st.query_params:
                 del st.query_params["pos"]
-            return
-        potongan = []
-        for p in daftar_pos:
-            kd = re.sub(r"[^A-Z0-9]", "", str(p.get("ticker", "")).upper())
-            avg = _angka_aman(p.get("avg_price", 0), 0.0)
-            lot = int(_angka_aman(p.get("lot", 0), 0))
-            cat = urllib.parse.quote(str(p.get("catatan", "")).strip(), safe="")
-            if kd and avg > 0:
-                potongan.append(f"{kd}:{avg:g}:{lot}:{cat}")
-        if potongan:
-            st.query_params["pos"] = ",".join(potongan)
-        elif "pos" in st.query_params:
-            del st.query_params["pos"]
+        else:
+            potongan = []
+            for p in daftar_pos:
+                kd = re.sub(r"[^A-Z0-9]", "", str(p.get("ticker", "")).upper())
+                avg = _angka_aman(p.get("avg_price", 0), 0.0)
+                lot = int(_angka_aman(p.get("lot", 0), 0))
+                cat = urllib.parse.quote(str(p.get("catatan", "")).strip(), safe="")
+                if kd and avg > 0:
+                    potongan.append(f"{kd}:{avg:g}:{lot}:{cat}")
+            if potongan:
+                st.query_params["pos"] = ",".join(potongan)
+            elif "pos" in st.query_params:
+                del st.query_params["pos"]
     except Exception:
         pass
+    _tulis_cloud_gist(st.session_state.get("watchlist", DEFAULT_WATCHLIST), daftar_pos)
 
 # ================= FUNGSI PENGAMBIL DATA CEPAT (TTL 10 DETIK) =================
 
@@ -1760,7 +1826,7 @@ def popup_detail_saham(kode: str, ihsg_paket: dict):
             if st.button("⭐ + Watchlist", key=f"wl_add_{kode}", use_container_width=True):
                 st.session_state.watchlist.insert(0, kode)
                 simpan_watchlist_ke_url(st.session_state.watchlist)
-                st.toast(f"⭐ {kode} disimpan permanen ke Watchlist!", icon="✅")
+                st.toast(f"⭐ {kode} disimpan ke Watchlist & Cloud!", icon="✅")
                 st.rerun()
         else:
             if st.button("🗑️ Hapus Watchlist", key=f"wl_del_{kode}", use_container_width=True):
@@ -3020,7 +3086,7 @@ def render_portfolio_tracker(semua_skor: list, data_ihsg: dict):
     st.markdown(
         '<div style="margin-top:10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">'
         '<span style="color:#00c805; font-weight:700; font-size:15px; border-bottom:2px solid #00c805; padding-bottom:4px;">🛡️ PORTFOLIO TRACKER — DETEKSI ARAH &amp; SENTIMEN BERITA</span>'
-        '<span style="font-size:11.5px; color:#8b949e;">Net PnL termasuk est. fee 0,40% • Tersimpan otomatis di URL</span>'
+        '<span style="font-size:11.5px; color:#8b949e;">Net PnL termasuk est. fee 0,40% • Sinkron otomatis PC ↔ HP</span>'
         '</div>',
         unsafe_allow_html=True
     )
